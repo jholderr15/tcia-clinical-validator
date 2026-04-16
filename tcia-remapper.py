@@ -11,6 +11,7 @@ import datetime
 from io import BytesIO
 from docx import Document
 import importlib.util
+import base64
 
 # Add tcia-remapping-skill to the path and import the helper
 skill_dir = os.path.join(os.path.dirname(__file__), 'tcia-remapping-skill')
@@ -1332,6 +1333,16 @@ if st.session_state.phase == 0:
 # ============================================================================
 elif st.session_state.phase == 1:
     st.header("Phase 1: Column Headers")
+
+    # Prepare script download link
+    try:
+        with open("tcia_data_inventory.py", "rb") as f:
+            script_data = f.read()
+        b64_script = base64.b64encode(script_data).decode()
+        script_link = f'<a href="data:file/python;base64,{b64_script}" download="tcia_data_inventory.py">try out this script</a>'
+    except Exception:
+        script_link = "try out this script"
+
     st.markdown("""
     Upload your source data files and map your columns to the target entities.
     """)
