@@ -1343,9 +1343,11 @@ elif st.session_state.phase == 1:
     except Exception:
         script_link = "try out this script"
 
-    st.markdown("""
+    st.markdown(f"""
     Upload your source data files and map your columns to the target entities.
-    """)
+    
+    As a convenience, {script_link} to create some TSV inventories of your dataset directory that can be uploaded for harmonization in the following steps. To run it, you will need Python with pydicom and pandas installed. After executing the script you will be asked what directory you'd like to analyze.
+    """, unsafe_allow_html=True)
     
     # File upload
     uploaded_file = st.file_uploader(
