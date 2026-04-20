@@ -675,14 +675,16 @@ if st.session_state.phase == 0:
                 "Abstract (Max 1,000 Characters)*",
                 value=st.session_state.cicadas.get('abstract', ''),
                 help="Brief overview of the dataset: subjects, imaging types, potential applications.",
-                max_chars=1000
+                max_chars=1000,
+                label_visibility="collapsed"
             )
 
             st.write("### Introduction")
             c_intro = st.text_area(
                 "Introduction",
                 value=st.session_state.cicadas.get('introduction', ''),
-                help="Purpose and uniqueness of the dataset."
+                help="Purpose and uniqueness of the dataset.",
+                label_visibility="collapsed"
             )
 
             st.write("### Methods")
@@ -831,13 +833,23 @@ if st.session_state.phase == 0:
                         elif len(parts) == 1:
                             first_name = parts[0].strip()
 
+                    # ORCID Lookup if name is missing
+                    organization = ""
+                    if orcid and not first_name and not last_name:
+                        with st.spinner(f"Looking up ORCID {orcid}..."):
+                            orcid_meta = lookup_orcid(orcid)
+                            if orcid_meta:
+                                first_name = orcid_meta.get('first_name', '')
+                                last_name = orcid_meta.get('last_name', '')
+                                organization = orcid_meta.get('organization', '')
+
                     parsed_results.append({
                         'author_order': i + len(st.session_state.metadata['Investigator']),
                         'first_name': first_name,
                         'last_name': last_name,
                         'person_orcid': orcid,
                         'email': '',
-                        'organization_name': ''
+                        'organization_name': organization
                     })
 
             if parsed_results:
@@ -1026,7 +1038,7 @@ if st.session_state.phase == 0:
                 current_data=rw_prepopulate
             )
             
-            submitted = st.form_submit_button("Save & Next")
+            submitted = st.form_submit_button("Add")
             if submitted:
                 # DOI and Publication Type are required by the model
                 if work_data.get('DOI') and work_data.get('publication_type'):
@@ -1038,10 +1050,13 @@ if st.session_state.phase == 0:
                             st.session_state[key] = ""
 
                     st.toast(f"✅ Added related work: {work_data['DOI']}")
-                    st.session_state.phase0_step = 'Review'
                     st.rerun()
                 else:
                     st.error("Please fill in all required fields (DOI, Publication Type).")
+
+        if st.button("➡️ All Related Works Added - Proceed to Review", use_container_width=True):
+            st.session_state.phase0_step = 'Review'
+            st.rerun()
     
     # TAB 6: Review & Generate
     elif st.session_state.phase0_step == "Review":
@@ -1085,9 +1100,12 @@ if st.session_state.phase == 0:
             for role in ["Scientific", "Technical", "Legal"]:
                 name = prop_data.get(f"{role} POC Name", "")
                 email = prop_data.get(f"{role} POC Email", "")
-                phone = prop_data.get(f"{role} POC Phone", "")
+                phone = str(prop_data.get(f"{role} POC Phone", ""))
                 if name:
-                    poc_info.append(f"{role}: {name} ({email}) {phone}".strip())
+                    line = f"{role}: {name} ({email})"
+                    if phone and phone.lower() != "nan" and phone.strip():
+                        line += f" {phone}"
+                    poc_info.append(line.strip())
 
             add_row(table, "POC Information", "\n".join(poc_info))
             add_row(table, "Submission schedule and deadlines", prop_data.get('Time Constraints', ''))
@@ -1096,12 +1114,49 @@ if st.session_state.phase == 0:
 
             # Expected types of data
             types = []
-            if prop_data.get('image_types'):
-                types.append(f"Images: {prop_data['image_types']}")
-            if prop_data.get('supporting_data'):
-                types.append(f"Supporting: {prop_data['supporting_data']}")
-            if prop_data.get('derived_types'):
-                types.append(f"Derived: {prop_data['derived_types']}")
+            file_formats = prop_data.get('file_formats', '')
+
+            # Map formats to types for better display
+            format_map = {}
+            if file_formats:
+                for part in str(file_formats).split(';'):
+                    if ' - ' in part:
+                        t, f = part.split(' - ', 1)
+                        format_map[t.strip()] = f.strip()
+
+            def get_formatted_type(label, key):
+                val = prop_data.get(key)
+                if not val: return None
+
+                items = []
+                if isinstance(val, list):
+                    items = val
+                elif isinstance(val, str):
+                    if val.startswith('[') and val.endswith(']'):
+                        try:
+                            items = ast.literal_eval(val)
+                        except:
+                            items = [val]
+                    else:
+                        items = [v.strip() for v in val.split(',')]
+
+                formatted_items = []
+                for item in items:
+                    if item in format_map:
+                        formatted_items.append(f"{item} ({format_map[item]})")
+                    else:
+                        formatted_items.append(item)
+                return f"{label}: {', '.join(formatted_items)}"
+
+            img_type = get_formatted_type("Images", "image_types")
+            if img_type: types.append(img_type)
+
+            supp_type = get_formatted_type("Supporting", "supporting_data")
+            if supp_type: types.append(supp_type)
+
+            der_type = get_formatted_type("Derived", "derived_types")
+            if der_type: types.append(der_type)
+
             add_row(table, "Expected types of data", "\n".join(types))
             add_row(table, "Approximate date range of study execution", "")
 
@@ -1172,18 +1227,35 @@ if st.session_state.phase == 0:
             table_wp5 = doc.add_table(rows=0, cols=2)
             table_wp5.style = 'Table Grid'
             add_row(table_wp5, "Additional Resources", st.session_state.cicadas.get('external_resources', ''))
-            add_row(table_wp5, "Supporting Data", "Categorical labels that describe the External Resources (e.g. Clinical, Genomics) that are related, but not hosted on TCIA directly.")
 
-            # Related Datasets
-            rd_text = ""
-            if is_analysis_result:
-                rd_text = "\n".join([f"{d.get('title')} (DOI: {d.get('DOI')})" for d in related_datasets])
+            # Supporting Data from proposal
+            supp_data_val = prop_data.get('supporting_data', '')
+            if isinstance(supp_data_val, list):
+                supp_data_str = ", ".join(supp_data_val)
+            else:
+                supp_data_str = str(supp_data_val)
+            add_row(table_wp5, "Supporting Data", supp_data_str)
+
+            # Related Datasets (Move 'Dataset' type related works here)
+            all_rel_works = st.session_state.metadata.get('Related_Work', [])
+            rel_datasets = [w for w in all_rel_works if w.get('publication_type') == 'Dataset']
+            rd_text = "\n".join([f"{d.get('title')} (DOI: {d.get('DOI')})" for d in rel_datasets])
             add_row(table_wp5, "Related Datasets", rd_text)
 
             doc.add_heading('Citations and Data Usage Policy', level=2)
             table_wp6 = doc.add_table(rows=0, cols=2)
             table_wp6.style = 'Table Grid'
-            add_row(table_wp6, "Citations", "Source: Default Crosscite output using DOI\n\nThis is a pop out that you add:\n1. Dataset citation\n2. Data descriptor if available\n3. Any required acknowledgement")
+
+            # Citations (All other related works)
+            other_rel_works = [w for w in all_rel_works if w.get('publication_type') != 'Dataset']
+            citation_text = ""
+            if other_rel_works:
+                for w in other_rel_works:
+                    citation_text += f"{w.get('authorship', 'Unknown Authors')} ({w.get('year_of_publication', 'n.d.')}). {w.get('title', 'No Title')}. {w.get('journal_citation', '')} DOI: {w.get('DOI', 'No DOI')}\n\n"
+            else:
+                citation_text = "Source: Default Crosscite output using DOI\n\nThis is a pop out that you add:\n1. Dataset citation\n2. Data descriptor if available\n3. Any required acknowledgement"
+
+            add_row(table_wp6, "Citations", citation_text.strip())
 
             # [H1] Issue Tracking
             doc.add_heading('Issue Tracking', level=1)
@@ -1314,10 +1386,12 @@ if st.session_state.phase == 0:
                         for idx, item in enumerate(entity_data):
                             st.write(f"**{entity_key} {idx+1}:**")
                             for key, value in item.items():
-                                st.write(f"  - {key}: {value}")
+                                display_val = ", ".join(map(str, value)) if isinstance(value, list) else value
+                                st.write(f"  - {key}: {display_val}")
                     else: # Program, Dataset
                         for key, value in entity_data[0].items():
-                            st.write(f"**{key}:** {value}")
+                            display_val = ", ".join(map(str, value)) if isinstance(value, list) else value
+                            st.write(f"**{key}:** {display_val}")
                 else:
                     st.warning(f"No {entity_key.lower()} information provided.")
 
