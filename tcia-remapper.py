@@ -209,9 +209,6 @@ def _clean_ai_output(text: str) -> str:
     if (t.startswith('"') and t.endswith('"')) or (t.startswith("'") and t.endswith("'")):
         t = t[1:-1].strip()
 
-    # Remove any remaining standalone quote characters
-    t = t.replace('"', '').replace("'", "").strip()
-
     return t
 
 # -----------------------------------------------------------------------------
@@ -748,6 +745,7 @@ NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
             format_func=lambda k: dict(CICADAS_SECTIONS)[k],
             index=_current_section_idx,
             key="cicadas_section_selector",
+            help="Move directly to any CICADAS subsection. Your saved content is preserved across jumps.",
         )
         if _jump_selection != st.session_state.cicadas_section:
             st.session_state.cicadas_section = _jump_selection
@@ -755,11 +753,11 @@ NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
 
         _nav_back_col, _nav_next_col = st.columns(2)
         with _nav_back_col:
-            if st.button("⬅ Back", key="cicadas_nav_back", use_container_width=True, disabled=(_current_section_idx == 0)):
+            if st.button("⬅ Back", key="cicadas_nav_back", use_container_width=True, disabled=(_current_section_idx == 0), help="Navigate to the previous CICADAS section. Does not save — use Save & Next to save your work."):
                 st.session_state.cicadas_section = _section_keys[_current_section_idx - 1]
                 st.rerun()
         with _nav_next_col:
-            if st.button("Next ➡", key="cicadas_nav_next", use_container_width=True, disabled=(_current_section_idx == len(CICADAS_SECTIONS) - 1)):
+            if st.button("Next ➡", key="cicadas_nav_next", use_container_width=True, disabled=(_current_section_idx == len(CICADAS_SECTIONS) - 1), help="Navigate to the next CICADAS section. Does not save — use Save & Next to save your work."):
                 st.session_state.cicadas_section = _section_keys[_current_section_idx + 1]
                 st.rerun()
 
@@ -848,25 +846,30 @@ NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
 
             # Drawer under the section
             with st.expander("AI check", expanded=False):
+                st.caption("💡 The AI check panel helps improve wording for the current section. It does not automatically save or overwrite your text unless you choose Replace or Append.")
                 c1, c2, c3, c4 = st.columns([1.4, 1.0, 1.2, 1.4])
 
                 with c1:
-                    if st.button("Get AI rewrite", key=f"ai_run_{field}", use_container_width=True):
+                    if st.button("Get AI rewrite", key=f"ai_run_{field}", use_container_width=True,
+                                 help="Runs the local Ollama model on this section only. Uses your current text and rewrites it for clarity, specificity, and professional tone. Other completed sections are passed as context for consistency only."):
                         run_ai(field, header, guidance=guidance)
                         st.rerun()
 
                 with c2:
-                    if st.button("Clear", key=f"ai_clear_{field}", use_container_width=True):
+                    if st.button("Clear", key=f"ai_clear_{field}", use_container_width=True,
+                                 help="Clears the current AI suggestion. Does not erase the text you have already typed in the section box."):
                         clear_ai(field)
                         st.rerun()
 
                 with c3:
-                    if st.button("Replace", key=f"ai_replace_{field}", use_container_width=True):
+                    if st.button("Replace", key=f"ai_replace_{field}", use_container_width=True,
+                                 help="Replaces your current section text with the AI suggestion. Useful when the AI version is better and you want to fully adopt it."):
                         replace_with_ai(field)
                         st.rerun()
 
                 with c4:
-                    if st.button("Append", key=f"ai_append_{field}", use_container_width=True):
+                    if st.button("Append", key=f"ai_append_{field}", use_container_width=True,
+                                 help="Adds the AI suggestion to the end of your current section text. Useful if you want to merge the suggestion with what you already wrote."):
                         append_ai(field)
                         st.rerun()
 
@@ -948,8 +951,13 @@ NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
 
         _is_last_section = (_current_section_idx == len(CICADAS_SECTIONS) - 1)
         _save_btn_label = "Save & Finish CICADAS ➡" if _is_last_section else "Save & Next ➡"
+        _save_btn_help = (
+            "Saves everything and moves the workflow to the Investigator step."
+            if _is_last_section else
+            "Saves the current section content and moves to the next CICADAS section."
+        )
 
-        if st.button(_save_btn_label, type="primary", use_container_width=True):
+        if st.button(_save_btn_label, type="primary", use_container_width=True, help=_save_btn_help):
             st.session_state.cicadas = dict(st.session_state.cicadas_form)
 
             desc_parts = []
