@@ -537,7 +537,39 @@ if submit_button:
         table = doc.add_table(rows=0, cols=2)
         table.style = 'Table Grid'
 
-        for key, value in all_responses.items():
+        # Pre-process for better DOCX display
+        docx_responses = all_responses.copy()
+
+        # Organize file formats for display
+        file_formats = docx_responses.get('file_formats', '')
+        format_map = {}
+        if file_formats:
+            for part in str(file_formats).split(';'):
+                if ' - ' in part:
+                    t, f = part.split(' - ', 1)
+                    format_map[t.strip()] = f.strip()
+
+        def format_type_with_format(key):
+            val = docx_responses.get(key)
+            if not val: return ""
+            items = val if isinstance(val, list) else [val]
+            formatted = []
+            for item in items:
+                if item in format_map:
+                    formatted.append(f"{item} ({format_map[item]})")
+                else:
+                    formatted.append(str(item))
+            return ", ".join(formatted)
+
+        if 'image_types' in docx_responses:
+            docx_responses['image_types'] = format_type_with_format('image_types')
+        if 'supporting_data' in docx_responses:
+            docx_responses['supporting_data'] = format_type_with_format('supporting_data')
+        if 'derived_types' in docx_responses:
+            docx_responses['derived_types'] = format_type_with_format('derived_types')
+
+        # DOCX Generation
+        for key, value in docx_responses.items():
             if key == "Manuscripts":
                 label = "Manuscripts/Preprints"
                 row_cells = table.add_row().cells
@@ -547,6 +579,14 @@ if submit_button:
                     val = ms['url'] if ms['type'] == 'URL' else ms['file'].name
                     ms_text += f"- [{ms['category']}] {val}\n"
                 row_cells[1].text = ms_text.strip()
+            elif "POC Phone" in key:
+                if value and str(value).lower() != "nan" and str(value).strip():
+                    label = LABELS.get(key, key)
+                    row_cells = table.add_row().cells
+                    row_cells[0].text = label
+                    row_cells[1].text = str(value)
+                else:
+                    continue # Omit entirely
             else:
                 label = LABELS.get(key, key)
                 row_cells = table.add_row().cells
